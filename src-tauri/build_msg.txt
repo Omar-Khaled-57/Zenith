@@ -1,0 +1,2 @@
+   Compiling tauri-appzenith v0.1.0 (D:\pimp my hub\Zenith\src-tauri)
+^C

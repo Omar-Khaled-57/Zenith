@@ -1,0 +1,54 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# dependency directories
+node_modules/
+jspm_packages/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# dist/ (Vite build)
+dist
+dist-ssr
+*.local
+
+# Tauri build artifacts
+src-tauri/target
+src-tauri/binaries
+src-tauri/gen
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust/Cargo
+debug/
+build/
+target/
+cargo-lock.json
+
+# Local env files
+.env
+.env.local
+.env.*.local
+
