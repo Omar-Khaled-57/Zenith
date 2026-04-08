@@ -53,7 +53,8 @@
    ```
 
 4. Run the development server:
-   * Open terminal in adminstrator mode
+   * Open terminal in administrator mode
+     
    ```bash
    npm run tauri dev
    ```
@@ -61,7 +62,8 @@
 ### Building for Production
 
 To create a optimized, installer package:
-* Open terminal in adminstrator mode
+* Open terminal in administrator mode
+  
 ```bash
 npm run tauri build
 ```
