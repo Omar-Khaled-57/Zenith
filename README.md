@@ -8,6 +8,8 @@
 
 **Zenith** is a high-performance, glassmorphic system health monitor built with **Tauri v2** and **React**. Designed for enthusiasts who demand real-time thermal intelligence, Zenith provides deep insights into your system's hardware state with a stunning, futuristic interface.
 
+📝**Note:** It was made on and for Win 11 so it may not work correctly on other systems
+
 ---
 
 ## ✨ Key Features
