@@ -30,6 +30,7 @@ src-tauri/target
 src-tauri/binaries
 src-tauri/gen
 output/
+dev/
 
 # Editor directories and files
 .vscode/*

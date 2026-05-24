@@ -119,7 +119,7 @@ function Logo() {
 function TitleBar() {
   return (
     <div
-      className="flex items-center justify-between pt-6 pb-4 cursor-move"
+      className="drag-region flex items-center justify-between pt-6 pb-4 cursor-move"
       data-tauri-drag-region="true"
       style={STYLES.titleBar}
     >

@@ -4,7 +4,7 @@ A running log of every change, fix, and decision during development.
 
 ---
 
-## Session 1 — Code Quality & Stability Overhaul
+## 0.1.1 — Code Quality & Stability Overhaul
 
 **Focus**: Optimize performance, eliminate technical debt, enforce consistent patterns across frontend and backend, and refine the thermal intelligence pipeline.
 

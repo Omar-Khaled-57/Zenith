@@ -2,5 +2,5 @@
 #![windows_subsystem = "windows"]
 
 fn main() {
-    tauri_appzenith_lib::run()
+    zenith_lib::run()
 }
