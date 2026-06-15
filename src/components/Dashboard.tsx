@@ -1,4 +1,49 @@
+import { Component, ErrorInfo, ReactNode } from "react";
 import { SensorPayload } from "../App";
+
+// ── Error Boundary ──
+
+interface ErrorBoundaryProps { children: ReactNode; }
+interface ErrorBoundaryState { hasError: boolean; error: Error | null; }
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("Dashboard error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="#ef4444" strokeWidth="1.5" opacity="0.4" />
+            <path d="M12 7v4M12 14v.01" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <span style={{ fontSize: 10, letterSpacing: "0.1em", color: "rgba(239,68,68,0.7)" }}>
+            DASHBOARD ERROR
+          </span>
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{
+              padding: "4px 14px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.05)", color: "rgba(203,213,225,0.7)",
+              fontSize: 10, cursor: "pointer",
+            }}
+          >
+            RETRY
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // ── Thermal Intelligence ──
 
@@ -63,6 +108,14 @@ function tempColor(temp: number): string {
   if (temp >= 80) return "#f97316";
   if (temp >= 70) return "#d946ef";
   if (temp >= 55) return "#84cc16";
+  return "#22d3ee";
+}
+
+function deltaColor(delta: number): string {
+  if (delta >= 15) return "#ef4444";
+  if (delta >= 12) return "#f97316";
+  if (delta >= 8) return "#d946ef";
+  if (delta >= 5) return "#84cc16";
   return "#22d3ee";
 }
 
@@ -157,7 +210,7 @@ function CoreGrid({ temps }: { temps: number[] }) {
 // ── Metric Bar ──
 
 function MetricBar({ label, value, max, unit, color }: { label: string; value: number; max: number; unit: string; color: string }) {
-  const pct = Math.min((value / max) * 100, 100);
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
     <div style={{ marginBottom: 10 }}>
       <div className="flex justify-between mb-1">
@@ -175,32 +228,46 @@ function MetricBar({ label, value, max, unit, color }: { label: string; value: n
 
 // ── Process List ──
 
-function formatMem(mb: number): string {
-  return mb < 1024 ? `${mb.toFixed(0)}M` : `${(mb / 1024).toFixed(1)}G`;
+const processItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  padding: "5px 8px",
+  background: "rgba(255,255,255,0.03)",
+  borderRadius: 8,
+  border: "1px solid rgba(255,255,255,0.04)",
+};
+
+function formatMem(gb: number): string {
+  if (gb >= 1) return `${gb.toFixed(1)}G`;
+  const mb = gb * 1024;
+  return mb >= 1 ? `${mb.toFixed(0)}M` : `${(mb * 1024).toFixed(0)}K`;
 }
 
 function ProcessList({ processes }: { processes: SensorPayload["top_processes"] }) {
+  if (!processes || processes.length === 0) {
+    return (
+      <div>
+        <div style={{ ...S.sectionHeader, marginBottom: 8 }}>TOP DEMAND</div>
+        <div style={{ fontSize: 10, color: "rgba(148,163,184,0.4)", textAlign: "center", padding: 12 }}>
+          No process data available
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div style={{ ...S.sectionHeader, marginBottom: 8 }}>TOP DEMAND</div>
       <div className="flex flex-col gap-1">
-        {processes.map((p, i) => (
-          <div
-            key={p.pid}
-            className="animate-fade-in"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "5px 8px",
-              background: "rgba(255,255,255,0.03)",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.04)",
-            }}
-          >
+        {processes.slice(0, 5).map((p, i) => (
+          <div key={p.pid} className="animate-fade-in" style={processItemStyle}>
             <div className="flex items-center gap-2 min-w-0">
               <span style={{ fontSize: 9, color: "rgba(100,116,139,0.7)", fontFamily: "monospace", minWidth: 10 }}>{i + 1}</span>
-              <span style={{ fontSize: 11, fontWeight: 500, color: "rgba(203,213,225,0.85)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 105 }}>
+              <span style={{
+                fontSize: 11, fontWeight: 500, color: "rgba(203,213,225,0.85)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 105,
+              }}>
                 {p.name}
               </span>
             </div>
@@ -285,7 +352,7 @@ function GaugeSection({ data, insight }: { data: SensorPayload; insight: Insight
             <div style={{ width: 1, background: "rgba(255,255,255,0.06)", height: 24, alignSelf: "center" }} />
             <div className="text-center">
               <div style={{ fontSize: 9, color: "rgba(255, 255, 255, 0.8)", letterSpacing: "0.1em" }}>Δ</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: tempColor(data.cpu_pkg_temp - data.core_delta) }}>{data.core_delta.toFixed(1)}°</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: deltaColor(data.core_delta) }}>{data.core_delta.toFixed(1)}°</div>
             </div>
           </div>
         </div>
@@ -310,21 +377,23 @@ export default function Dashboard({ data }: { data: SensorPayload | null }) {
   const insight = getInsight(data);
 
   return (
-    <div className="flex-1 flex flex-col gap-2.5 min-h-0">
-      <GaugeSection data={data} insight={insight} />
-      <CoreGrid temps={data.temps} />
-      <Divider />
+    <ErrorBoundary>
+      <div className="flex-1 flex flex-col gap-2.5 min-h-0">
+        <GaugeSection data={data} insight={insight} />
+        <CoreGrid temps={data.temps} />
+        <Divider />
 
-      <div>
-        <div style={{ ...S.sectionHeader, marginBottom: 8 }}>SYSTEM</div>
-        <MetricBar label="RAM" value={data.ram_usage / 1024} max={data.ram_total / 1024} unit="GB" color="#8b5cf6" />
-        <MetricBar label="DISK" value={data.disk_usage} max={data.disk_total} unit="GB" color="#06b6d4" />
-      </div>
+        <div>
+          <div style={{ ...S.sectionHeader, marginBottom: 8 }}>SYSTEM</div>
+          <MetricBar label="RAM" value={data.ram_usage} max={data.ram_total} unit="GB" color="#8b5cf6" />
+          <MetricBar label="DISK" value={data.disk_usage} max={data.disk_total} unit="GB" color="#06b6d4" />
+        </div>
 
-      <Divider />
-      <div className="flex-1 min-h-0">
-        <ProcessList processes={data.top_processes} />
+        <Divider />
+        <div className="flex-1 min-h-0">
+          <ProcessList processes={data.top_processes} />
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

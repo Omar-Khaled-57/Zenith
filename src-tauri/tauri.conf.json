@@ -38,14 +38,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "windows": {
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "uninstallerIcon": "icons/icon.ico"
-      },
-      "wix": {
-        "icon": "icons/icon.ico"
-      }
-    }
+    "windows": {}
   }
 }

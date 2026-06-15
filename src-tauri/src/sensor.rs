@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::{Components, Disks, ProcessesToUpdate, System};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -23,14 +22,18 @@ pub struct SensorPayload {
     pub top_processes: Vec<ProcessInfo>,
 }
 
-/// Minimal deterministic pseudo-random generator based on nanosecond timing.
-fn fast_rand(seed: u64) -> f32 {
-    let t = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let mix = (t ^ u128::from(seed)) as u32;
-    ((mix.wrapping_mul(1103515245).wrapping_add(12345)) % 1000) as f32 / 1000.0
+/// Simple LCG PRNG seeded once; deterministic per-seed.
+struct SeededRand(u64);
+
+impl SeededRand {
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+    /// Returns value in [0, 1).
+    fn next(&mut self) -> f32 {
+        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (self.0 >> 33) as f32 / (1u64 << 31) as f32
+    }
 }
 
 /// Map 0–100% CPU usage to a realistic temperature range.
@@ -40,17 +43,20 @@ fn cpu_load_to_temp(load_pct: f32) -> f32 {
     IDLE_TEMP + (load_pct / 100.0) * (LOAD_CAP_TEMP - IDLE_TEMP)
 }
 
+/// Refresh processes only every N polls to reduce syscall overhead.
+const PROCESS_REFRESH_INTERVAL: u32 = 5;
+
 pub struct SensorEngine {
     sys: System,
     components: Components,
     disks: Disks,
+    poll_count: u32,
+    rng: SeededRand,
 }
 
 impl SensorEngine {
     pub fn new() -> Self {
         let mut sys = System::new_all();
-        // First refresh provides a CPU-usage baseline
-        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
         sys.refresh_cpu_all();
 
         let components = Components::new_with_refreshed_list();
@@ -60,19 +66,25 @@ impl SensorEngine {
             sys,
             components,
             disks,
+            poll_count: 0,
+            rng: SeededRand::new(42),
         }
     }
 
     pub fn poll(&mut self) -> SensorPayload {
         self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.sys.refresh_processes(ProcessesToUpdate::All, true);
         self.components.refresh(false);
-        self.disks.refresh(false);
+
+        // Refresh processes less frequently to reduce overhead
+        self.poll_count += 1;
+        if self.poll_count % PROCESS_REFRESH_INTERVAL == 1 {
+            self.sys.refresh_processes(ProcessesToUpdate::All, true);
+        }
 
         let global_cpu = self.sys.global_cpu_usage();
 
-        // ── Read real sensor data ──
+        // ── Read real sensor data (single pass over components) ──
         let mut core_temps: Vec<f32> = Vec::new();
         let mut pkg_temp: f32 = 0.0;
 
@@ -98,40 +110,44 @@ impl SensorEngine {
         }
 
         // ── Simulation fallback when no hardware sensors are available ──
-        // On Windows, MSR CPU temperature sensors are often blocked without a Ring-0 driver.
-        // This fallback synthesises realistic thermals tied to actual CPU usage so the UI
-        // and thermal-intelligence logic remain functional on any machine.
         if core_temps.is_empty() {
             let base_temp = cpu_load_to_temp(global_cpu);
-            pkg_temp = base_temp + 3.0; // Package typically runs hotter than individual cores
+            pkg_temp = base_temp + 3.0;
 
-            for i in 1..=8 {
-                let jitter = fast_rand(i * 179) * 10.0;
-                let spread = fast_rand(i as u64 * 313) * 4.0;
+            for _ in 1..=8 {
+                let jitter = self.rng.next() * 10.0;
+                let spread = self.rng.next() * 4.0;
                 let temp = base_temp - jitter + spread;
                 core_temps.push(temp.max(25.0).min(100.0));
             }
         }
 
-        // ── Core delta ──
+        // ── Core delta (single pass for min & max) ──
         let core_delta = if core_temps.len() > 1 {
-            let max = core_temps.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-            let min = core_temps.iter().copied().fold(f32::INFINITY, f32::min);
-            max - min
+            let mut max_temp = f32::NEG_INFINITY;
+            let mut min_temp = f32::INFINITY;
+            for &t in &core_temps {
+                if t > max_temp { max_temp = t; }
+                if t < min_temp { min_temp = t; }
+            }
+            max_temp - min_temp
         } else {
             0.0
         };
 
         // ── Memory ──
-        let ram_total = self.sys.total_memory() as f32 / 1_048_576.0;
-        let ram_usage = self.sys.used_memory() as f32 / 1_048_576.0;
+        let ram_total = self.sys.total_memory() as f32 / 1_073_741_824.0;
+        let ram_usage = self.sys.used_memory() as f32 / 1_073_741_824.0;
 
-        // ── Disk ──
-        let disk_total_bytes: u64 = self.disks.iter().map(|d| d.total_space()).sum();
-        let disk_avail_bytes: u64 = self.disks.iter().map(|d| d.available_space()).sum();
-        let gigabyte = 1_073_741_824.0;
-        let disk_total = disk_total_bytes as f32 / gigabyte;
-        let disk_usage = (disk_total_bytes.saturating_sub(disk_avail_bytes)) as f32 / gigabyte;
+        // ── Disk (single pass) ──
+        let mut disk_total_bytes: u64 = 0;
+        let mut disk_avail_bytes: u64 = 0;
+        for disk in self.disks.iter() {
+            disk_total_bytes += disk.total_space();
+            disk_avail_bytes += disk.available_space();
+        }
+        let disk_total = disk_total_bytes as f64 / 1_073_741_824.0;
+        let disk_usage = (disk_total_bytes.saturating_sub(disk_avail_bytes)) as f64 / 1_073_741_824.0;
 
         // ── Top processes by CPU ──
         let mut processes: Vec<ProcessInfo> = self
@@ -142,11 +158,11 @@ impl SensorEngine {
                 pid: pid.as_u32() as usize,
                 name: p.name().to_string_lossy().into_owned(),
                 cpu_usage: p.cpu_usage(),
-                memory_mb: p.memory() as f32 / 1_048_576.0,
+                memory_mb: p.memory() as f32 / 1_073_741_824.0f32,
             })
             .collect();
 
-        processes.sort_by(|a, b| {
+        processes.sort_unstable_by(|a, b| {
             b.cpu_usage
                 .partial_cmp(&a.cpu_usage)
                 .unwrap_or(std::cmp::Ordering::Equal)
@@ -158,10 +174,10 @@ impl SensorEngine {
             cpu_usage: global_cpu,
             core_delta,
             temps: core_temps,
-            ram_usage,
-            ram_total,
-            disk_usage,
-            disk_total,
+            ram_usage: ram_usage as f32,
+            ram_total: ram_total as f32,
+            disk_usage: disk_usage as f32,
+            disk_total: disk_total as f32,
             top_processes: processes,
         }
     }
