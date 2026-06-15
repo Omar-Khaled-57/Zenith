@@ -2,7 +2,7 @@
   "name": "zenith",
   "productName": "Zenith",
   "private": true,
-  "version": "0.1.1",
+  "version": "1.0.0",
   "author": "Omar Khaled <khaledelkhly57@gmail.com>",
   "type": "module",
   "scripts": {

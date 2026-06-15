@@ -1,14 +1,15 @@
 # 🌌 Zenith — Thermal Monitor
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-0.1.0-magenta.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Tauri](https://img.shields.io/badge/Tauri-v2-cyan.svg)
 ![React](https://img.shields.io/badge/React-19-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg)
+![Status](https://img.shields.io/badge/status-stable-brightgreen.svg)
 
 **Zenith** is a high-performance, glassmorphic system health monitor built with **Tauri v2** and **React**. Designed for enthusiasts who demand real-time thermal intelligence, Zenith provides deep insights into your system's hardware state with a stunning, futuristic interface.
 
-📝**Note:** It was made on and for Win 11 so it may not work correctly on other systems
+> **Platform note:** Developed and tested on Windows 11. Linux and macOS builds may require sensor configuration adjustments.
 
 ---
 

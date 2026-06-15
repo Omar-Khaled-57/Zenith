@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "0.1.0"
+version = "1.0.0"
 description = "System Health & Thermal Intelligence Monitor"
 authors = ["Omar Khaled"]
 edition = "2021"
