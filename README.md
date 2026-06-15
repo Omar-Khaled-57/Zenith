@@ -75,9 +75,11 @@ The installers will be located in `src-tauri/target/release/bundle/`.
 ## 👨‍💻 Author
 
 **Omar Khaled**
+
 GitHub: [@Omar-Khaled-57](https://github.com/Omar-Khaled-57)
 
 Portfolio: [Omar El-Khlouly](https://omar-el-khouly.vercel.app)
+
 ---
 
 ## 📄 License
