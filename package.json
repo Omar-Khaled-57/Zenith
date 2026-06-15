@@ -3,6 +3,7 @@
   "productName": "Zenith",
   "private": true,
   "version": "0.1.1",
+  "author": "Omar Khaled <khaledelkhly57@gmail.com>",
   "type": "module",
   "scripts": {
     "dev": "vite",
