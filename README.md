@@ -1,5 +1,5 @@
 <h1>
-  <img src="icon.svg" alt="Zenith" width="36" height="36" style="vertical-align: middle; margin-right: 6px;">
+  <img src="icon.svg" alt="Zenith" width="42" height="42" style="vertical-align: middle; margin-right: 6px;">
   Zenith
 </h1>
 
