@@ -93,7 +93,7 @@ async function main() {
   // 2. ICO file (Windows)
   // ============================================
   console.log('Generating ICO file...');
-  const icoSizes = [16, 24, 32, 48, 64, 128, 256];
+  const icoSizes = [32, 24, 16, 48, 64, 128, 256];
   const icoPngs = [];
   for (const size of icoSizes) {
     icoPngs.push(await renderSVG(size));

@@ -4,7 +4,7 @@ use sensor::SensorEngine;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,6 +14,11 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
+            if let Some(icon) = app.default_window_icon() {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_icon(icon.clone());
+                }
+            }
             let app_handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("sensor-poll".into())
