@@ -172,7 +172,7 @@ function Ring({ value, maxValue = 100, radius, strokeWidth, color, bgColor = "rg
       <circle cx={cx} cy={cy} r={radius} fill="none" stroke={bgColor} strokeWidth={strokeWidth} strokeDasharray={dashArray} strokeLinecap="round" />
       <circle
         cx={cx} cy={cy} r={radius} fill="none" stroke={color} strokeWidth={strokeWidth}
-        strokeDasharray={arcLength} strokeDashoffset={fillOffset} strokeLinecap="round"
+        strokeDasharray={`${arcLength} ${circumference}`} strokeDashoffset={fillOffset} strokeLinecap="round"
         style={{ filter: `drop-shadow(0 0 6px ${color}80)` }}
       />
     </g>
