@@ -8,7 +8,7 @@ export interface ProcessInfo {
   pid: number;
   name: string;
   cpu_usage: number;
-  memory_mb: number;
+  memory_gb: number;
 }
 
 export interface SensorPayload {

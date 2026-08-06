@@ -41,6 +41,44 @@ A running log of every change, fix, and decision during development.
 - Custom app icon (`icon.svg`) used as favicon in `index.html`.
 - No default Tauri icon assets remain in use.
 
+### 🔬 Accuracy & Hardening Audit
+
+Second pass before shipping — sensor accuracy, honest data presentation, dependency hygiene, security, and code quality.
+
+### 🔧 Backend (`src-tauri/`)
+
+| File | What changed |
+|------|-------------|
+| `src/sensor.rs` | **Fixed**: On Windows, the real ACPI thermal-zone temperature (sysinfo label `"Computer"`) is now used as the package temperature — previously the label matcher never matched it, so the real reading was discarded and temperatures were always simulated. Simulation now only runs when **no** real temperature source exists. **Fixed**: first-sample accuracy — CPU and process usage are warmed up at startup (sysinfo requires two refreshes ≥ `MINIMUM_CPU_UPDATE_INTERVAL` apart), and the throttled process refresh now lands on poll #2 so the very first emitted payload is valid instead of all-zero. **Fixed**: per-process CPU normalized from per-core % (could read e.g. 800%) to a 0–100% share of total CPU, matching the global gauge and Task Manager. **Fixed**: `memory_mb` renamed to `memory_gb` (the value was always GiB). **Fixed**: per-core matching now excludes non-CPU sensors (e.g. "GPU Core"). Clippy warnings cleared (`.clamp`, redundant `as f32` casts). |
+| `src/lib.rs` | Removed unused `tauri-plugin-store` registration |
+| `Cargo.toml` | Removed unused `tauri-plugin-store` and `serde_json` direct dependencies |
+
+### 🧹 Frontend (`src/`)
+
+| File | What changed |
+|------|-------------|
+| `src/components/Dashboard.tsx` | **Fixed**: ring gauges now animate via `stroke-dashoffset` (the CSS already transitioned it; the old `strokeDasharray`-length approach was not animatable). **Fixed**: Δ readout hidden when no real per-core data exists (temps < 2), so it cannot show a fabricated `0.0°`/simulated delta |
+| `src/App.tsx` | Renamed `memory_mb` → `memory_gb` to match the backend payload |
+
+### 🔒 Security
+- **CSP added** — `tauri.conf.json` `csp: null` replaced with a restrictive policy (`default-src 'self'` + Google Fonts + inline styles only). Tauri IPC runs via host-injected scripts and is unaffected.
+- Removed committed build/debug junk (`build_msg.txt`, `errors.txt`, `last_error.tx`, `log.txt`) and gitignored them.
+
+### 🏭 Dependencies
+- `npm audit` vulnerabilities reduced from 4 (2 high) to 0.
+- Cargo dependency tree trimmed (store plugin removed).
+
+### 📄 Docs
+- `README.md` — sensor-source behavior now documented accurately (ACPI thermal zone on Windows; per-core data only where real sensors exist); admin-mode wording softened.
+- `README.md` — release artifacts now published under `dev/release/{version}`; installers kept in `dev/release/1.0.0/`.
+
+### 📦 Packaging
+- First Windows release published to `dev/release/1.0.0/`:
+  - `Zenith_1.0.0_x64_en-US.msi` — MSI (WiX) installer
+  - `Zenith_1.0.0_x64-setup.exe` — NSIS installer
+  - `RELEASE_NOTES.md` — release note with title
+- Installer source-of-truth remains `src-tauri/target/release/bundle/`.
+
 ---
 
 ## 0.1.1 — Code Quality & Stability Overhaul

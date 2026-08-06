@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
-use sysinfo::{Components, Disks, ProcessesToUpdate, System};
+use sysinfo::{Components, Disks, ProcessesToUpdate, System, MINIMUM_CPU_UPDATE_INTERVAL};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: usize,
     pub name: String,
     pub cpu_usage: f32,
-    pub memory_mb: f32,
+    pub memory_gb: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -58,6 +58,15 @@ impl SensorEngine {
     pub fn new() -> Self {
         let mut sys = System::new_all();
         sys.refresh_cpu_all();
+        sys.refresh_memory();
+
+        // Warm up CPU + process usage samples so the very first emitted payload
+        // is accurate. sysinfo computes usage from the difference between two
+        // refreshes and requires at least MINIMUM_CPU_UPDATE_INTERVAL between them.
+        sys.refresh_processes(ProcessesToUpdate::All, true);
+        std::thread::sleep(MINIMUM_CPU_UPDATE_INTERVAL);
+        sys.refresh_cpu_all();
+        sys.refresh_processes(ProcessesToUpdate::All, true);
 
         let components = Components::new_with_refreshed_list();
         let disks = Disks::new_with_refreshed_list();
@@ -76,9 +85,11 @@ impl SensorEngine {
         self.sys.refresh_memory();
         self.components.refresh(false);
 
-        // Refresh processes less frequently to reduce overhead
+        // Refresh processes less frequently to reduce overhead. The warmup in
+        // `new()` covers poll #1, so the first throttled refresh lands on poll #2
+        // (a full second later), guaranteeing a valid usage sample.
         self.poll_count += 1;
-        if self.poll_count % PROCESS_REFRESH_INTERVAL == 1 {
+        if self.poll_count % PROCESS_REFRESH_INTERVAL == 2 {
             self.sys.refresh_processes(ProcessesToUpdate::All, true);
         }
 
@@ -95,10 +106,11 @@ impl SensorEngine {
                 continue;
             }
 
-            if label.contains("package") || label.contains("tctl") || label.starts_with("cpu package")
-            {
+            // "Computer" is sysinfo's label for the Windows ACPI thermal zone,
+            // the only real temperature source available there.
+            if label == "computer" || label.contains("package") || label.contains("tctl") {
                 pkg_temp = temp;
-            } else if label.contains("core") || label.starts_with("cpu core") || label.starts_with("core ")
+            } else if !label.contains("gpu") && (label.contains("core") || label.starts_with("core "))
             {
                 core_temps.push(temp);
             }
@@ -109,8 +121,10 @@ impl SensorEngine {
             pkg_temp = core_temps.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         }
 
-        // ── Simulation fallback when no hardware sensors are available ──
-        if core_temps.is_empty() {
+        // ── Simulation fallback only when no real temperature sensor is available ──
+        // A real package sensor (e.g. AMD "Tctl") with no per-core sensors must not
+        // be discarded in favor of fabricated data.
+        if pkg_temp == 0.0 && core_temps.is_empty() {
             let base_temp = cpu_load_to_temp(global_cpu);
             pkg_temp = base_temp + 3.0;
 
@@ -118,7 +132,7 @@ impl SensorEngine {
                 let jitter = self.rng.next() * 10.0;
                 let spread = self.rng.next() * 4.0;
                 let temp = base_temp - jitter + spread;
-                core_temps.push(temp.max(25.0).min(100.0));
+                core_temps.push(temp.clamp(25.0, 100.0));
             }
         }
 
@@ -150,15 +164,22 @@ impl SensorEngine {
         let disk_usage = (disk_total_bytes.saturating_sub(disk_avail_bytes)) as f64 / 1_073_741_824.0;
 
         // ── Top processes by CPU ──
+        // sysinfo reports per-core CPU% (a multi-threaded process can exceed
+        // 100%). Normalize to a 0-100% share of total CPU so it matches the
+        // global CPU gauge and Task Manager conventions.
+        let num_cpus = self.sys.cpus().len().max(1) as f32;
         let mut processes: Vec<ProcessInfo> = self
             .sys
             .processes()
             .iter()
-            .map(|(pid, p)| ProcessInfo {
-                pid: pid.as_u32() as usize,
-                name: p.name().to_string_lossy().into_owned(),
-                cpu_usage: p.cpu_usage(),
-                memory_mb: p.memory() as f32 / 1_073_741_824.0f32,
+            .map(|(pid, p)| {
+                let name = p.name().to_string_lossy().into_owned();
+                ProcessInfo {
+                    pid: pid.as_u32() as usize,
+                    name: if name.is_empty() { "Unknown".into() } else { name },
+                    cpu_usage: (p.cpu_usage() / num_cpus).clamp(0.0, 100.0),
+                    memory_gb: p.memory() as f32 / 1_073_741_824.0f32,
+                }
             })
             .collect();
 
@@ -174,8 +195,8 @@ impl SensorEngine {
             cpu_usage: global_cpu,
             core_delta,
             temps: core_temps,
-            ram_usage: ram_usage as f32,
-            ram_total: ram_total as f32,
+            ram_usage,
+            ram_total,
             disk_usage: disk_usage as f32,
             disk_total: disk_total as f32,
             top_processes: processes,

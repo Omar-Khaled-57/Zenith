@@ -161,10 +161,10 @@ function Ring({ value, maxValue = 100, radius, strokeWidth, color, bgColor = "rg
   const arcDeg = 360 - gapDeg;
   const circumference = 2 * Math.PI * radius;
   const arcLength = (arcDeg / 360) * circumference;
-  const fillLength = Math.min(Math.max(value / maxValue, 0), 1) * arcLength;
+  const fillRatio = Math.min(Math.max(value / maxValue, 0), 1);
+  const fillOffset = arcLength * (1 - fillRatio);
 
   const dashArray = `${arcLength} ${circumference - arcLength}`;
-  const fillDashArray = `${fillLength} ${circumference - fillLength}`;
   const rotationDeg = 90 + gapDeg / 2;
 
   return (
@@ -172,7 +172,7 @@ function Ring({ value, maxValue = 100, radius, strokeWidth, color, bgColor = "rg
       <circle cx={cx} cy={cy} r={radius} fill="none" stroke={bgColor} strokeWidth={strokeWidth} strokeDasharray={dashArray} strokeLinecap="round" />
       <circle
         cx={cx} cy={cy} r={radius} fill="none" stroke={color} strokeWidth={strokeWidth}
-        strokeDasharray={fillDashArray} strokeLinecap="round"
+        strokeDasharray={arcLength} strokeDashoffset={fillOffset} strokeLinecap="round"
         style={{ filter: `drop-shadow(0 0 6px ${color}80)` }}
       />
     </g>
@@ -276,7 +276,7 @@ function ProcessList({ processes }: { processes: SensorPayload["top_processes"] 
                 {p.cpu_usage.toFixed(1)}%
               </span>
               <span style={{ fontSize: 10, color: "rgba(100,116,139,0.6)", fontFamily: "monospace", minWidth: 36, textAlign: "right" }}>
-                {formatMem(p.memory_mb)}
+                {formatMem(p.memory_gb)}
               </span>
             </div>
           </div>
@@ -349,11 +349,15 @@ function GaugeSection({ data, insight }: { data: SensorPayload; insight: Insight
               <div style={{ fontSize: 9, color: "rgba(255, 255, 255, 0.8)", letterSpacing: "0.1em" }}>CPU</div>
               <div style={{ fontSize: 13, fontWeight: 700, color: "#3b82f6" }}>{data.cpu_usage.toFixed(1)}%</div>
             </div>
-            <div style={{ width: 1, background: "rgba(255,255,255,0.06)", height: 24, alignSelf: "center" }} />
-            <div className="text-center">
-              <div style={{ fontSize: 9, color: "rgba(255, 255, 255, 0.8)", letterSpacing: "0.1em" }}>Δ</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: deltaColor(data.core_delta) }}>{data.core_delta.toFixed(1)}°</div>
-            </div>
+            {data.temps.length >= 2 && (
+              <>
+                <div style={{ width: 1, background: "rgba(255,255,255,0.06)", height: 24, alignSelf: "center" }} />
+                <div className="text-center">
+                  <div style={{ fontSize: 9, color: "rgba(255, 255, 255, 0.8)", letterSpacing: "0.1em" }}>Δ</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: deltaColor(data.core_delta) }}>{data.core_delta.toFixed(1)}°</div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

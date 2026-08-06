@@ -12,7 +12,6 @@ pub fn run() {
     let running_clone = Arc::clone(&running);
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let app_handle = app.handle().clone();

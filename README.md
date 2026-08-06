@@ -3,7 +3,7 @@
   Zenith
 </h1>
 
-High-performance, glassmorphic system health monitor built with **Tauri v2** and **React**. Real-time thermal intelligence with a stunning, futuristic interface.
+Glassmorphic system health monitor for Windows, built with **Tauri v2** and **React 19**. Shows live CPU temperature, per-core temps, CPU/RAM/disk usage, and a top-process list in a small transparent window.
 
 <p>
   <img src="https://img.shields.io/badge/Tauri_v2-FFC131?logo=tauri&logoColor=black" alt="Tauri v2">
@@ -15,90 +15,54 @@ High-performance, glassmorphic system health monitor built with **Tauri v2** and
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT">
 </p>
 
-> **Platform note:** Developed and tested on Windows 11. Linux and macOS builds may require sensor configuration adjustments.
-
----
+> **Platform note:** Developed and tested on Windows 11. Linux/macOS builds may require sensor configuration adjustments.
+>
+> **Sensor data:** On Windows, package temperature is read from the ACPI thermal zone (`"Computer"` component). Per-core temps and the core-delta readout are shown only when real per-core sensors exist (e.g. hwmon on Linux/macOS); they are hidden rather than fabricated. If no temperature source is available at all, a load-derived simulation is used as a visual fallback.
 
 ## Features
 
-| Feature | Description |
-|---|---|
-| **Thermal Intelligence** | Real-time CPU health analysis with "Repaste Soon" and "Uneven Mount" warnings based on core delta patterns |
-| **Precision Gauges** | Dual-ring gauges for simultaneous CPU Usage and Package Temperature monitoring |
-| **Glassmorphic UI** | Premium transparent interface with blur effects, Cyan/Magenta accents, and smooth animations |
-| **Multi-Core Monitoring** | Individual core temperature tracking in a clean, high-density grid |
-| **Resource Tracking** | Live metrics for RAM, Disk usage, and a "Top Demand" process list |
-| **Native Shell** | Lightweight Rust-powered backend with minimal resource impact |
+- **Thermal intelligence** — "Throttling Risk", "Repaste Now/Soon", and "Uneven Mount" warnings derived from package temperature and core-delta patterns
+- **Dual-ring gauges** — CPU usage and package temperature on one animated, color-coded gauge
+- **Per-core grid** — individual core temperatures with status colors
+- **System resources** — live RAM/disk usage and the top 5 processes by CPU
+- **Native shell** — Rust backend polls hardware via `sysinfo` and streams events to the UI; minimal resource impact
 
 ## Tech Stack
 
-| Layer | Library |
-|---|---|
-| **Frontend** | [React 19](https://react.dev/), [Vite](https://vitejs.dev/), [Tailwind CSS v4](https://tailwindcss.com/) |
-| **Desktop Shell** | [Tauri v2](https://tauri.app/), [Rust](https://www.rust-lang.org/) |
-| **Icons** | Custom SVG + [Lucide React](https://lucide.dev/) |
-| **Typography** | [Inter](https://rsms.me/inter/) |
+React 19 · TypeScript · Vite · Tailwind CSS v4 · Tauri v2 · Rust (`sysinfo`) · Inter (Google Fonts)
 
-## Structure
+## Project Structure
 
 ```
-Zenith/
-├── src/
-│   ├── components/
-│   │   └── Dashboard.tsx    # Main dashboard with gauges, core grid, metrics
-│   ├── App.tsx              # Root component
-│   ├── App.css              # Global styles
-│   ├── main.tsx             # Entry point
-│   └── vite-env.d.ts
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs          # Tauri entry
-│   │   ├── lib.rs           # Command handlers
-│   │   └── sensor.rs        # Hardware sensor polling
-│   ├── icons/               # Platform icons
-│   ├── Cargo.toml
-│   └── tauri.conf.json      # Tauri configuration
-├── dev/release/             # Build artifacts
-├── scripts/
-│   └── generate-icons.mjs
-├── icon.svg                 # App icon
-├── index.html
-├── package.json
-├── vite.config.ts
-└── tsconfig.json
+src/                        React frontend
+├── App.tsx                 Title bar, event stream, window controls
+├── components/Dashboard.tsx  Gauges, core grid, metrics, insights
+└── App.css                 Global styles (glass effect, animations)
+
+src-tauri/                  Rust backend
+├── src/sensor.rs           Sensor polling, payload assembly (sysinfo)
+├── src/lib.rs              App setup, sensor thread lifecycle
+└── src/main.rs             Entry point
 ```
 
 ## Getting Started
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (Latest LTS)
-- [Rust](https://www.rust-lang.org/tools/install)
-- [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (Included in Windows 10/11)
-
-### Install
+**Prerequisites:** [Node.js](https://nodejs.org/) (LTS), [Rust](https://www.rust-lang.org/tools/install), WebView2 (bundled with Windows 10/11).
 
 ```bash
 git clone https://github.com/Omar-Khaled-57/Zenith.git
 cd Zenith
 npm install
+npm run tauri dev   # run as administrator for full sensor access
 ```
 
-### Development
-
-Run in **administrator mode** (required for hardware sensor access):
-
-```bash
-npm run tauri dev
-```
-
-### Production Build
+## Production Build
 
 ```bash
 npm run tauri build
 ```
 
-Installers will be at `src-tauri/target/release/bundle/`.
+Installers are generated in `src-tauri/target/release/bundle/`.
 
 ## Author
 
