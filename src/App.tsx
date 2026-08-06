@@ -21,6 +21,9 @@ export interface SensorPayload {
   disk_usage: number;
   disk_total: number;
   top_processes: ProcessInfo[];
+  source: string;
+  status: string;
+  worker_error: string | null;
 }
 
 const WINDOW_BTN_STYLE: React.CSSProperties = {

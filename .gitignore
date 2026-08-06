@@ -27,10 +27,14 @@ dist-ssr
 
 # Tauri build artifacts
 src-tauri/target
+src-tauri/worker/target
 src-tauri/binaries
 src-tauri/gen
 output/
 dev/
+
+# Sensor worker scratch output
+src-tauri/worker/*.txt
 
 # Editor directories and files
 .vscode/*

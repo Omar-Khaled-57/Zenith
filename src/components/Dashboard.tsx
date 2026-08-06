@@ -1,4 +1,5 @@
-import { Component, ErrorInfo, ReactNode } from "react";
+import { Component, ErrorInfo, ReactNode, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { SensorPayload } from "../App";
 
 // ── Error Boundary ──
@@ -56,8 +57,20 @@ interface Insight {
 }
 
 function getInsight(data: SensorPayload): Insight {
-  const { cpu_pkg_temp, cpu_usage, core_delta } = data;
+  const { cpu_pkg_temp, cpu_usage, core_delta, source } = data;
 
+  if (source === "none" || source === "acpi") {
+    return {
+      label: source === "none" ? "NO THERMAL DATA" : "ACPI FALLBACK",
+      sublabel:
+        source === "none"
+          ? "Real CPU temperature requires elevated access"
+          : "Displaying ACPI thermal zone — not hardware sensors",
+      color: source === "none" ? "#ef4444" : "#f97316",
+      glowColor: source === "none" ? "rgba(239,68,68,0.18)" : "rgba(249,115,22,0.18)",
+      severity: "warn",
+    };
+  }
   if (cpu_pkg_temp > 90) {
     return {
       label: "THROTTLING RISK",
@@ -367,6 +380,94 @@ function GaugeSection({ data, insight }: { data: SensorPayload; insight: Insight
   );
 }
 
+// ── Source Indicator ──
+
+const SOURCE_LABELS: Record<string, { text: string; color: string }> = {
+  hardware: { text: "REAL", color: "#22d3ee" },
+  acpi: { text: "ACPI", color: "#f97316" },
+  mock: { text: "MOCK", color: "#d946ef" },
+  none: { text: "NONE", color: "#ef4444" },
+};
+
+function SourceBadge({ source }: { source: string }) {
+  const cfg = SOURCE_LABELS[source] ?? SOURCE_LABELS.none;
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        padding: "3px 10px",
+        borderRadius: 99,
+        border: `1px solid ${cfg.color}40`,
+        background: `${cfg.color}14`,
+      }}
+      role="status"
+      aria-label={`Temperature source: ${cfg.text}`}
+    >
+      <span style={{ width: 6, height: 6, borderRadius: "50%", background: cfg.color, boxShadow: `0 0 6px ${cfg.color}` }} />
+      <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.18em", color: cfg.color }}>{cfg.text}</span>
+    </div>
+  );
+}
+
+// ── Elevation Banner ──
+
+function ElevationBanner({ data }: { data: SensorPayload }) {
+  const [restarting, setRestarting] = useState(false);
+
+  if (data.source !== "none") return null;
+
+  const handleRestart = () => {
+    setRestarting(true);
+    invoke("restart_elevated").catch(() => setRestarting(false));
+  };
+
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        padding: "10px 14px",
+        borderRadius: 10,
+        border: "1px solid rgba(239,68,68,0.3)",
+        background: "rgba(239,68,68,0.06)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+      }}
+    >
+      <div style={{ fontSize: 10, color: "rgba(248,113,113,0.9)", lineHeight: 1.5 }}>
+        Real CPU temperature requires the PawnIO driver, which needs administrator
+        privileges. Restart Zenith elevated to read hardware sensors.
+      </div>
+      {data.worker_error && (
+        <div style={{ fontSize: 9, color: "rgba(148,163,184,0.6)", fontFamily: "monospace" }}>
+          {data.worker_error}
+        </div>
+      )}
+      <button
+        onClick={handleRestart}
+        disabled={restarting}
+        style={{
+          alignSelf: "flex-start",
+          padding: "6px 16px",
+          borderRadius: 8,
+          border: "1px solid rgba(239,68,68,0.4)",
+          background: "rgba(239,68,68,0.15)",
+          color: "#fecaca",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.12em",
+          cursor: restarting ? "default" : "pointer",
+          opacity: restarting ? 0.6 : 1,
+        }}
+      >
+        {restarting ? "RESTARTING…" : "RESTART AS ADMINISTRATOR"}
+      </button>
+    </div>
+  );
+}
+
 // ── Divider ──
 
 function Divider() {
@@ -383,7 +484,11 @@ export default function Dashboard({ data }: { data: SensorPayload | null }) {
   return (
     <ErrorBoundary>
       <div className="flex-1 flex flex-col gap-2.5 min-h-0">
+        <div className="flex justify-center" style={{ marginBottom: 30 }}>
+          <SourceBadge source={data.source} />
+        </div>
         <GaugeSection data={data} insight={insight} />
+        <ElevationBanner data={data} />
         <CoreGrid temps={data.temps} />
         <Divider />
 

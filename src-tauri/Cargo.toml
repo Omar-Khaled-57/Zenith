@@ -1,6 +1,6 @@
 [package]
 name = "zenith"
-version = "1.0.0"
+version = "1.1.0"
 description = "System Health & Thermal Intelligence Monitor"
 authors = ["Omar Khaled"]
 edition = "2021"
@@ -16,5 +16,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 sysinfo = "0.38.4"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+zenith-sensor-worker = { path = "worker" }
 

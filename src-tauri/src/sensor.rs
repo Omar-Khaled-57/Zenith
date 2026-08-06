@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sysinfo::{Components, Disks, ProcessesToUpdate, System, MINIMUM_CPU_UPDATE_INTERVAL};
 
+use zenith_sensor_worker::protocol::{SensorKind, Source, Status, WorkerMessage};
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessInfo {
     pub pid: usize,
@@ -20,27 +22,9 @@ pub struct SensorPayload {
     pub disk_usage: f32,
     pub disk_total: f32,
     pub top_processes: Vec<ProcessInfo>,
-}
-
-/// Simple LCG PRNG seeded once; deterministic per-seed.
-struct SeededRand(u64);
-
-impl SeededRand {
-    fn new(seed: u64) -> Self {
-        Self(seed)
-    }
-    /// Returns value in [0, 1).
-    fn next(&mut self) -> f32 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        (self.0 >> 33) as f32 / (1u64 << 31) as f32
-    }
-}
-
-/// Map 0–100% CPU usage to a realistic temperature range.
-fn cpu_load_to_temp(load_pct: f32) -> f32 {
-    const IDLE_TEMP: f32 = 42.0;
-    const LOAD_CAP_TEMP: f32 = 92.0;
-    IDLE_TEMP + (load_pct / 100.0) * (LOAD_CAP_TEMP - IDLE_TEMP)
+    pub source: String,
+    pub status: String,
+    pub worker_error: Option<String>,
 }
 
 /// Refresh processes only every N polls to reduce syscall overhead.
@@ -51,7 +35,6 @@ pub struct SensorEngine {
     components: Components,
     disks: Disks,
     poll_count: u32,
-    rng: SeededRand,
 }
 
 impl SensorEngine {
@@ -76,14 +59,16 @@ impl SensorEngine {
             components,
             disks,
             poll_count: 0,
-            rng: SeededRand::new(42),
         }
     }
 
-    pub fn poll(&mut self) -> SensorPayload {
+    pub fn poll(
+        &mut self,
+        worker_latest: &Option<WorkerMessage>,
+        worker_error: Option<&str>,
+    ) -> SensorPayload {
         self.sys.refresh_cpu_all();
         self.sys.refresh_memory();
-        self.components.refresh(false);
 
         // Refresh processes less frequently to reduce overhead. The warmup in
         // `new()` covers poll #1, so the first throttled refresh lands on poll #2
@@ -95,46 +80,9 @@ impl SensorEngine {
 
         let global_cpu = self.sys.global_cpu_usage();
 
-        // ── Read real sensor data (single pass over components) ──
-        let mut core_temps: Vec<f32> = Vec::new();
-        let mut pkg_temp: f32 = 0.0;
-
-        for component in self.components.iter() {
-            let label = component.label().to_lowercase();
-            let Some(temp) = component.temperature() else { continue };
-            if temp <= 0.0 {
-                continue;
-            }
-
-            // "Computer" is sysinfo's label for the Windows ACPI thermal zone,
-            // the only real temperature source available there.
-            if label == "computer" || label.contains("package") || label.contains("tctl") {
-                pkg_temp = temp;
-            } else if !label.contains("gpu") && (label.contains("core") || label.starts_with("core "))
-            {
-                core_temps.push(temp);
-            }
-        }
-
-        // ── Fallback: infer pkg temp from core temps ──
-        if pkg_temp == 0.0 && !core_temps.is_empty() {
-            pkg_temp = core_temps.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        }
-
-        // ── Simulation fallback only when no real temperature sensor is available ──
-        // A real package sensor (e.g. AMD "Tctl") with no per-core sensors must not
-        // be discarded in favor of fabricated data.
-        if pkg_temp == 0.0 && core_temps.is_empty() {
-            let base_temp = cpu_load_to_temp(global_cpu);
-            pkg_temp = base_temp + 3.0;
-
-            for _ in 1..=8 {
-                let jitter = self.rng.next() * 10.0;
-                let spread = self.rng.next() * 4.0;
-                let temp = base_temp - jitter + spread;
-                core_temps.push(temp.clamp(25.0, 100.0));
-            }
-        }
+        // ── Temperature source: worker (hardware) or labeled ACPI fallback ──
+        let (source, status, pkg_temp, core_temps, worker_error) =
+            self.read_temps(worker_latest, worker_error);
 
         // ── Core delta (single pass for min & max) ──
         let core_delta = if core_temps.len() > 1 {
@@ -200,6 +148,252 @@ impl SensorEngine {
             disk_usage: disk_usage as f32,
             disk_total: disk_total as f32,
             top_processes: processes,
+            source,
+            status,
+            worker_error,
         }
+    }
+
+    /// Returns `(source, status, pkg_temp, core_temps, worker_error)`.
+    fn read_temps(
+        &mut self,
+        worker_latest: &Option<WorkerMessage>,
+        worker_error: Option<&str>,
+    ) -> (String, String, f32, Vec<f32>, Option<String>) {
+        // Fast path: a healthy worker sample is the real source, so skip the
+        // ACPI component refresh that would be discarded by `merge_temps`.
+        if matches!(worker_latest, Some(WorkerMessage::Sample(s)) if s.status == Status::Healthy) {
+            return merge_temps(worker_latest, (0.0, Vec::new()), worker_error);
+        }
+        let acpi = self.read_acpi_temps();
+        merge_temps(worker_latest, acpi, worker_error)
+    }
+
+    fn read_acpi_temps(&mut self) -> (f32, Vec<f32>) {
+        self.components.refresh(false);
+        let mut core_temps: Vec<f32> = Vec::new();
+        let mut pkg_temp: f32 = 0.0;
+
+        for component in self.components.iter() {
+            let label = component.label().to_lowercase();
+            let Some(temp) = component.temperature() else { continue };
+            if temp <= 0.0 {
+                continue;
+            }
+            if label == "computer" || label.contains("package") || label.contains("tctl") {
+                pkg_temp = temp;
+            } else if !label.contains("gpu") && (label.contains("core") || label.starts_with("core "))
+            {
+                core_temps.push(temp);
+            }
+        }
+
+        if pkg_temp == 0.0 && !core_temps.is_empty() {
+            pkg_temp = core_temps.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        }
+
+        (pkg_temp, core_temps)
+    }
+}
+
+/// Pure temperature-source merge. `acpi` is `(pkg_temp, core_temps)` from the
+/// labeled ACPI fallback, if any.
+fn merge_temps(
+    worker_latest: &Option<WorkerMessage>,
+    acpi: (f32, Vec<f32>),
+    worker_error: Option<&str>,
+) -> (String, String, f32, Vec<f32>, Option<String>) {
+    if let Some(WorkerMessage::Sample(sample)) = worker_latest {
+        if sample.status == Status::Healthy {
+            let source = match sample.source {
+                Source::Hardware => "hardware",
+                Source::Mock => "mock",
+                Source::None => "none",
+            }
+            .to_string();
+            let mut pkg_temp = 0.0f32;
+            let mut core_temps = Vec::new();
+            for sensor in &sample.sensors {
+                if sensor.kind == SensorKind::Package {
+                    let value = sensor.value_c as f32;
+                    if value.is_finite() {
+                        pkg_temp = value;
+                    }
+                } else if sensor.kind == SensorKind::Core {
+                    let value = sensor.value_c as f32;
+                    // Guard against a malformed worker sample propagating NaN/Inf
+                    // into `core_delta` (NaN comparisons would yield -inf).
+                    if value.is_finite() {
+                        core_temps.push(value);
+                    }
+                }
+            }
+            return (source, "healthy".to_string(), pkg_temp, core_temps, None);
+        }
+    }
+
+    let (acpi_pkg, acpi_cores) = acpi;
+    if acpi_pkg > 0.0 {
+        return (
+            "acpi".to_string(),
+            "degraded".to_string(),
+            acpi_pkg,
+            acpi_cores,
+            None,
+        );
+    }
+
+    (
+        "none".to_string(),
+        "unavailable".to_string(),
+        0.0,
+        Vec::new(),
+        worker_error.map(str::to_string),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use zenith_sensor_worker::protocol::{
+        CpuInfo, Derived, ErrorCode, ErrorDetail, ErrorEnvelope, Quality, SampleEnvelope,
+        SensorKind, SensorSample,
+    };
+
+    fn healthy_sample() -> WorkerMessage {
+        WorkerMessage::Sample(SampleEnvelope {
+            protocol: 1,
+            timestamp_ms: 1,
+            status: Status::Healthy,
+            source: Source::Hardware,
+            cpu: CpuInfo {
+                vendor: "GenuineIntel".into(),
+                family: 6,
+                model: 158,
+                cores: 4,
+                threads: 8,
+            },
+            sensors: vec![
+                SensorSample {
+                    kind: SensorKind::Package,
+                    index: 0,
+                    name: "CPU Package".into(),
+                    value_c: 70.0,
+                    quality: Quality::Valid,
+                },
+                SensorSample {
+                    kind: SensorKind::Core,
+                    index: 0,
+                    name: "Core #0".into(),
+                    value_c: 70.0,
+                    quality: Quality::Valid,
+                },
+                SensorSample {
+                    kind: SensorKind::Core,
+                    index: 1,
+                    name: "Core #1".into(),
+                    value_c: 66.0,
+                    quality: Quality::Valid,
+                },
+            ],
+            derived: Derived {
+                hottest_core_c: 70.0,
+                coolest_core_c: 66.0,
+                core_delta_c: 4.0,
+            },
+        })
+    }
+
+    fn unavailable_error() -> WorkerMessage {
+        WorkerMessage::Error(ErrorEnvelope {
+            protocol: 1,
+            timestamp_ms: 1,
+            status: Status::Unavailable,
+            source: Source::None,
+            error: ErrorDetail {
+                code: ErrorCode::DriverUnavailable,
+                message: "device not reachable".into(),
+            },
+        })
+    }
+
+    #[test]
+    fn hardware_sample_merges_sensors() {
+        let (source, status, pkg, cores, err) =
+            merge_temps(&Some(healthy_sample()), (0.0, Vec::new()), None);
+        assert_eq!(source, "hardware");
+        assert_eq!(status, "healthy");
+        assert_eq!(pkg, 70.0);
+        assert_eq!(cores, vec![70.0, 66.0]);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn mock_sample_is_labeled_mock() {
+        let mut msg = healthy_sample();
+        if let WorkerMessage::Sample(s) = &mut msg {
+            s.source = Source::Mock;
+        }
+        let (source, status, pkg, _, _) = merge_temps(&Some(msg), (0.0, Vec::new()), None);
+        assert_eq!(source, "mock");
+        assert_eq!(status, "healthy");
+        assert_eq!(pkg, 70.0);
+    }
+
+    #[test]
+    fn worker_error_falls_back_to_acpi_labeled() {
+        let (source, status, pkg, cores, err) =
+            merge_temps(&Some(unavailable_error()), (48.5, vec![47.0, 46.0]), None);
+        assert_eq!(source, "acpi");
+        assert_eq!(status, "degraded");
+        assert_eq!(pkg, 48.5);
+        assert_eq!(cores, vec![47.0, 46.0]);
+        assert!(err.is_none());
+    }
+
+    #[test]
+    fn non_finite_core_values_are_filtered() {
+        let mut msg = healthy_sample();
+        if let WorkerMessage::Sample(s) = &mut msg {
+            s.sensors.push(SensorSample {
+                kind: SensorKind::Core,
+                index: 2,
+                name: "Core #2".into(),
+                value_c: f64::NAN,
+                quality: Quality::Invalid,
+            });
+            s.sensors.push(SensorSample {
+                kind: SensorKind::Package,
+                index: 0,
+                name: "CPU Package".into(),
+                value_c: f64::NAN,
+                quality: Quality::Invalid,
+            });
+        }
+        let (_, _, pkg, cores, _) = merge_temps(&Some(msg), (0.0, Vec::new()), None);
+        assert_eq!(pkg, 70.0, "package stays from the valid sensor");
+        assert_eq!(cores, vec![70.0, 66.0], "NaN core filtered out");
+    }
+
+    #[test]
+    fn no_worker_no_acpi_is_unavailable_with_error() {
+        let (source, status, pkg, cores, err) = merge_temps(
+            &Some(unavailable_error()),
+            (0.0, Vec::new()),
+            Some("spawn failed: file not found"),
+        );
+        assert_eq!(source, "none");
+        assert_eq!(status, "unavailable");
+        assert_eq!(pkg, 0.0);
+        assert!(cores.is_empty());
+        assert_eq!(err.as_deref(), Some("spawn failed: file not found"));
+    }
+
+    #[test]
+    fn no_worker_no_acpi_no_error_is_unavailable() {
+        let (source, status, _, _, err) = merge_temps(&None, (0.0, Vec::new()), None);
+        assert_eq!(source, "none");
+        assert_eq!(status, "unavailable");
+        assert!(err.is_none());
     }
 }

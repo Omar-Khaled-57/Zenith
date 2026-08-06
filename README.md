@@ -3,7 +3,7 @@
   Zenith
 </h1>
 
-Glassmorphic system health monitor for Windows, built with **Tauri v2** and **React 19**. Shows live CPU temperature, per-core temps, CPU/RAM/disk usage, and a top-process list in a small transparent window.
+Glassmorphic system health monitor for Windows, built with **Tauri v2** and **React 19**. Shows real CPU temperature, per-core temps, CPU/RAM/disk usage, and a top-process list in a small transparent window.
 
 <p>
   <img src="https://img.shields.io/badge/Tauri_v2-FFC131?logo=tauri&logoColor=black" alt="Tauri v2">
@@ -17,10 +17,12 @@ Glassmorphic system health monitor for Windows, built with **Tauri v2** and **Re
 
 > **Platform note:** Developed and tested on Windows 11. Linux/macOS builds may require sensor configuration adjustments.
 >
-> **Sensor data:** On Windows, package temperature is read from the ACPI thermal zone (`"Computer"` component). Per-core temps and the core-delta readout are shown only when real per-core sensors exist (e.g. hwmon on Linux/macOS); they are hidden rather than fabricated. If no temperature source is available at all, a load-derived simulation is used as a visual fallback.
+> **Sensor data:** Real package and per-core CPU temperatures are decoded from Intel MSRs by a self-contained native Rust worker (`zenith-sensor-worker`) through the signed **PawnIO** kernel driver — this requires an elevated (administrator) run and the PawnIO driver installed. When the driver is unavailable, Zenith falls back to the labeled **ACPI thermal zone** (shown as `ACPI`, never presented as hardware data). With no temperature source at all, the UI shows `NONE` plus a "Restart as Administrator" prompt. Production builds never fabricate temperatures — the simulated source exists only as a dev-only mock backend (labeled `MOCK`).
 
 ## Features
 
+- **Real CPU temperatures** — package and per-core temps decoded from Intel MSRs by a native Rust worker (`zenith-sensor-worker`, ~4.5 MB RSS) through the signed PawnIO kernel driver
+- **Source transparency** — the UI always labels where temps come from (`REAL` / `ACPI` / `MOCK` / `NONE`) and prompts an elevated restart when the driver is unreachable
 - **Thermal intelligence** — "Throttling Risk", "Repaste Now/Soon", and "Uneven Mount" warnings derived from package temperature and core-delta patterns
 - **Dual-ring gauges** — CPU usage and package temperature on one animated, color-coded gauge
 - **Per-core grid** — individual core temperatures with status colors
@@ -29,36 +31,40 @@ Glassmorphic system health monitor for Windows, built with **Tauri v2** and **Re
 
 ## Tech Stack
 
-React 19 · TypeScript · Vite · Tailwind CSS v4 · Tauri v2 · Rust (`sysinfo`) · Inter (Google Fonts)
+React 19 · TypeScript · Vite · Tailwind CSS v4 · Tauri v2 · Rust (`sysinfo` + native sensor worker + PawnIO driver) · Inter (Google Fonts)
 
 ## Project Structure
 
 ```
 src/                        React frontend
 ├── App.tsx                 Title bar, event stream, window controls
-├── components/Dashboard.tsx  Gauges, core grid, metrics, insights
+├── components/Dashboard.tsx  Gauges, core grid, source badge, metrics, insights
 └── App.css                 Global styles (glass effect, animations)
 
 src-tauri/                  Rust backend
-├── src/sensor.rs           Sensor polling, payload assembly (sysinfo)
-├── src/lib.rs              App setup, sensor thread lifecycle
-└── src/main.rs             Entry point
+├── src/sensor.rs           Sensor polling, payload assembly, temp-source merge (sysinfo + worker)
+├── src/worker_supervisor.rs  Spawns/supervises the sensor worker (circuit breaker)
+├── src/lib.rs              App setup, sensor thread lifecycle, elevation restart command
+├── src/main.rs             Entry point
+└── worker/                 zenith-sensor-worker crate — real CPU temps via PawnIO driver
 ```
 
 ## Getting Started
 
-**Prerequisites:** [Node.js](https://nodejs.org/) (LTS), [Rust](https://www.rust-lang.org/tools/install), WebView2 (bundled with Windows 10/11).
+**Prerequisites:** [Node.js](https://nodejs.org/) (LTS), [Rust](https://www.rust-lang.org/tools/install), WebView2 (bundled with Windows 10/11). Real hardware temperatures additionally need the [PawnIO](https://github.com/namazso/PawnIO) driver (`winget install namazso.PawnIO`) and an elevated run.
 
 ```bash
 git clone https://github.com/Omar-Khaled-57/Zenith.git
 cd Zenith
 npm install
-npm run tauri dev   # run as administrator for full sensor access
+cargo build --release --manifest-path src-tauri/worker/Cargo.toml   # build the sensor worker
+npm run tauri dev   # run as administrator for real (hardware) CPU temperatures
 ```
 
 ## Production Build
 
 ```bash
+cargo build --release --manifest-path src-tauri/worker/Cargo.toml   # build the sensor worker first
 npm run tauri build
 ```
 

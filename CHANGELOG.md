@@ -4,6 +4,58 @@ A running log of every change, fix, and decision during development.
 
 ---
 
+## 1.1.0 — Real CPU Temperatures via Native Rust Worker + PawnIO
+
+**Focus**: Replace the ACPI/simulated temperature source with real per-core + package CPU temperatures from a self-contained native Rust sensor worker driving the signed PawnIO kernel driver, add source transparency, and remove production simulation.
+
+### 🚀 New Features
+- **Real hardware CPU temps** — package + per-core temperatures decoded from Intel MSRs by `zenith-sensor-worker.exe` (~4.5 MB RSS) through the signed PawnIO kernel driver.
+- **Source transparency** — UI badge always labels the temperature source: `REAL` (hardware worker), `ACPI` (labeled fallback), `MOCK` (dev only), or `NONE` (unavailable).
+- **Elevation prompt** — when the driver is unreachable, the UI shows a "Restart as Administrator" banner wired to a new `restart_elevated` command (`ShellExecuteW runas`).
+- **Versioned JSONL protocol** — worker streams protocol-versioned envelopes at 1 Hz; error envelopes carry codes (`DRIVER_UNAVAILABLE`, `MODULE_MISSING`, `MSR_FAILED`, `TOPOLOGY_FAILED`, `INTERNAL`).
+
+### 🔧 Backend (`src-tauri/`)
+
+| File | What changed |
+|------|-------------|
+| `src/worker_supervisor.rs` | **New** — spawns/supervises `zenith-sensor-worker.exe`: channel-based reads with 3 s hang timeout → respawn, circuit breaker (250 ms → 1 s → 5 s → `FAILED`, healthy-streak reset), dev-only `ZENITH_WORKER_PATH`/`ZENITH_WORKER_MOCK` overrides, worker killed on app close (stdin EOF = death signal) |
+| `src/sensor.rs` | **Removed** simulation entirely (`SeededRand` LCG + `cpu_load_to_temp` deleted). `SensorPayload` gains `source`/`status`/`worker_error`. Pure `merge_temps()` picks the healthy worker sample first, else the labeled ACPI fallback (`acpi`/`degraded`), else `none`/`unavailable`. Non-finite package/core values filtered. Fast path skips the ACPI `components.refresh(false)` when a healthy worker sample is present. |
+| `src/lib.rs` | Sensor thread now owns the `WorkerSupervisor` lifecycle and emits the merged payload; added `restart_elevated` Tauri command |
+| `Cargo.toml` | Added `serde_json`, `windows-sys`, and `zenith-sensor-worker` (path) dependencies |
+
+### 🧹 Worker (`src-tauri/worker/` — new crate)
+
+- `zenith-sensor-worker` bin + lib crate; `hardware_access` trait with **PawnIO** and **Mock** backends.
+- Rust-native PawnIO access via `windows-sys` (two buffered IOCTLs on `\\.\GLOBALROOT\Device\PawnIO`, `SetThreadGroupAffinity` before each read) — no FFI, no managed runtime.
+- Topology via CPUID + `GetLogicalProcessorInformationEx`; **Intel decode** (TjMax MSR 0x1A2, core MSR 0x19C, package MSR 0x1B1, deltaT bits 22:16); sensor quality `valid`/`suspicious`/`invalid`.
+- `res/IntelMSR.bin` — 4068 B signed module blob (LGPL-2.1).
+- `supervisor.rs` circuit breaker shared with the app; `rss-harness.ps1` profiling (4.5 MB steady — target <10 MB).
+- **Validation**: 23 worker tests (21 unit + 2 CLI integration) with raw-MSR→temp fixtures independent of hardware; real elevated run read 63–73 °C; release build clean.
+
+### 🔒 Security & Robustness (audit cycle)
+
+| Finding | Fix |
+|---------|-----|
+| **S1** — `ZENITH_WORKER_PATH`/`ZENITH_WORKER_MOCK` env overrides let an arbitrary process hijack the elevated app or silently switch to fake readings | Overrides honored in **debug builds only** (`#[cfg(debug_assertions)]`); release always resolves the worker next to the app and never accepts a mock flag |
+| **P1** — ACPI components refreshed even when a healthy worker sample existed | `components.refresh(false)` skipped on the healthy-worker fast path |
+| **M1** — dead "Pass 1" topology block with broken `logical_package` logic | Removed |
+| **R1** — a malformed worker sample could propagate NaN/`-inf` into `core_delta` | `merge_temps` keeps the last finite package value and drops non-finite core values (+ regression test) |
+| **R2** — `latest()`/`last_error()` could panic on poisoned mutex | Survive mutex poisoning (`unwrap_or_else(\|e\| e.into_inner())`) |
+
+- Lint: worker clippy clean (3 pre-existing warnings fixed: range `contains`, `is_empty()`).
+
+### 🐛 Bug Fixes
+- **Production simulation removed** — load-derived temperatures no longer masquerade as real readings; a mock backend exists for development only and is labeled `MOCK` in the UI.
+- **First-payload accuracy preserved** — sysinfo warm-up (two refreshes ≥ `MINIMUM_CPU_UPDATE_INTERVAL` apart) keeps CPU/process usage valid on poll #1; worker hardware samples are preferred the moment they arrive.
+
+### ⚠️ Known Limitations
+- **Intel decode only** — AMD per-generation decoders are planned but unvalidated (no AMD hardware locally); Zen5 (family 0x1B) unsupported by PawnIO modules 0.2.9.
+- **Hybrid Intel (12th gen+)** and **>64-thread processor groups** remain open items.
+- Driver distribution is first-run acquisition (via `winget install namazso.PawnIO`); the app probes the device, not the uninstall key.
+- Pending at release: live elevated app→hardware smoke (worker and supervisor validated separately with a real elevated run).
+
+---
+
 ## 1.0.0 — Production Release
 
 **Focus**: Performance optimization, accuracy fixes, graceful shutdown, error resilience, and production hardening.
