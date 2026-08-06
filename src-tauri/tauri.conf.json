@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:5173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && cargo build --release --manifest-path src-tauri/worker/Cargo.toml",
     "frontendDist": "../dist"
   },
   "app": {
@@ -27,6 +27,9 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "worker/target/release/zenith-sensor-worker.exe": "zenith-sensor-worker.exe"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",

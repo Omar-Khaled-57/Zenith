@@ -47,12 +47,14 @@ A running log of every change, fix, and decision during development.
 ### 🐛 Bug Fixes
 - **Production simulation removed** — load-derived temperatures no longer masquerade as real readings; a mock backend exists for development only and is labeled `MOCK` in the UI.
 - **First-payload accuracy preserved** — sysinfo warm-up (two refreshes ≥ `MINIMUM_CPU_UPDATE_INTERVAL` apart) keeps CPU/process usage valid on poll #1; worker hardware samples are preferred the moment they arrive.
+- **Installed app could not run the sensor worker** — the worker was initially bundled with the array-form `bundle.resources`, which preserves source subfolders, so it installed to `<install>/worker/target/release/...` instead of beside `Zenith.exe`. Switched to the object-form map (`{ "worker/target/release/zenith-sensor-worker.exe": "zenith-sensor-worker.exe" }`) so the worker installs exactly next to the app executable, and `resolve_worker_exe()` now resolves it from the Tauri resource directory (the exe's directory on Windows) with exe-dir and source-tree fallbacks. The worker is compiled automatically during `tauri build` (`beforeBuildCommand`).
+- **"Restart as Administrator" now works under `tauri dev` too** — `restart_elevated` used to call `app.exit(0)`, which tears down the Vite dev server the relaunched window needs to load its frontend. In debug builds it now keeps the process alive and hides the window instead; release builds still exit and let the fresh elevated instance take over.
 
 ### ⚠️ Known Limitations
 - **Intel decode only** — AMD per-generation decoders are planned but unvalidated (no AMD hardware locally); Zen5 (family 0x1B) unsupported by PawnIO modules 0.2.9.
 - **Hybrid Intel (12th gen+)** and **>64-thread processor groups** remain open items.
 - Driver distribution is first-run acquisition (via `winget install namazso.PawnIO`); the app probes the device, not the uninstall key.
-- Pending at release: live elevated app→hardware smoke (worker and supervisor validated separately with a real elevated run).
+- Live elevated app→hardware smoke **validated** — the installed app launches `zenith-sensor-worker.exe` elevated and reports real package/per-core temps.
 
 ---
 

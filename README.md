@@ -57,18 +57,17 @@ src-tauri/                  Rust backend
 git clone https://github.com/Omar-Khaled-57/Zenith.git
 cd Zenith
 npm install
-cargo build --release --manifest-path src-tauri/worker/Cargo.toml   # build the sensor worker
+cargo build --release --manifest-path src-tauri/worker/Cargo.toml   # build the sensor worker (dev only; tauri build does this automatically)
 npm run tauri dev   # run as administrator for real (hardware) CPU temperatures
 ```
 
 ## Production Build
 
 ```bash
-cargo build --release --manifest-path src-tauri/worker/Cargo.toml   # build the sensor worker first
 npm run tauri build
 ```
 
-Installers are generated in `src-tauri/target/release/bundle/`.
+`tauri build` compiles the frontend, the Rust app, and the sensor worker, and bundles the worker next to `Zenith.exe` via `bundle.resources`. Installers are generated in `src-tauri/target/release/bundle/`.
 
 ## Author
 

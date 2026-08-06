@@ -31,7 +31,19 @@ fn restart_elevated(app: tauri::AppHandle) -> Result<(), String> {
     if result as isize <= 32 {
         return Err(format!("failed to start elevated (code {})", result as isize));
     }
-    app.exit(0);
+    // In release, the fresh elevated process replaces this one, so exit.
+    // In debug (`tauri dev`) exiting would tear down the Vite dev server the
+    // relaunched window needs, so keep this process alive and hide its window.
+    #[cfg(debug_assertions)]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        app.exit(0);
+    }
     Ok(())
 }
 
@@ -54,7 +66,7 @@ pub fn run() {
                 .name("sensor-poll".into())
                 .spawn(move || {
                     let mut supervisor = WorkerSupervisor::new();
-                    supervisor.start(&resolve_worker_exe());
+                    supervisor.start(&resolve_worker_exe(&app_handle));
                     let mut engine = SensorEngine::new();
                     while running_clone.load(Ordering::Relaxed) {
                         let latest = supervisor.latest();

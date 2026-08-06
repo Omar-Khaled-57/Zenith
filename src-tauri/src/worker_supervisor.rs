@@ -8,13 +8,14 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use tauri::Manager;
 use zenith_sensor_worker::protocol::{Status, WorkerMessage};
 use zenith_sensor_worker::supervisor::{CircuitBreaker, NextAction};
 
 const HANG_TIMEOUT: Duration = Duration::from_secs(3);
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-pub fn resolve_worker_exe() -> PathBuf {
+pub fn resolve_worker_exe(app: &tauri::AppHandle) -> PathBuf {
     #[cfg(debug_assertions)]
     if let Ok(env_path) = std::env::var("ZENITH_WORKER_PATH") {
         let p = PathBuf::from(env_path);
@@ -22,11 +23,36 @@ pub fn resolve_worker_exe() -> PathBuf {
             return p;
         }
     }
-    if let Some(exe_dir) = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    {
-        let worker_root = exe_dir.join("..").join("..").join("worker");
+
+    let exe_dir = || {
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    };
+
+    // Installed apps ship the worker beside the executable: `bundle.resources`
+    // (object form) places it at the root of the resource directory, which on
+    // Windows is the directory containing the exe.
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let beside = resource_dir.join("zenith-sensor-worker.exe");
+        if beside.is_file() {
+            return beside;
+        }
+    }
+
+    // Same location, computed directly from the exe path (belt & suspenders for
+    // installers that unpack the exe separately from the resource dir).
+    if let Some(dir) = exe_dir() {
+        let beside = dir.join("zenith-sensor-worker.exe");
+        if beside.is_file() {
+            return beside;
+        }
+    }
+
+    // Development fallback: resolve the worker from the source tree
+    // (`src-tauri/target/...` -> `src-tauri/worker/target/{release,debug}`).
+    if let Some(dir) = exe_dir() {
+        let worker_root = dir.join("..").join("..").join("worker");
         for profile in ["release", "debug"] {
             let candidate = worker_root
                 .join("target")
@@ -37,6 +63,7 @@ pub fn resolve_worker_exe() -> PathBuf {
             }
         }
     }
+
     PathBuf::from("zenith-sensor-worker.exe")
 }
 
