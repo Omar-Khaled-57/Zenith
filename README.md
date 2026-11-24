@@ -29,9 +29,58 @@ Glassmorphic system health monitor for Windows, built with **Tauri v2** and **Re
 - **System resources** — live RAM/disk usage and the top 5 processes by CPU
 - **Native shell** — Rust backend polls hardware via `sysinfo` and streams events to the UI; minimal resource impact
 
+## Visual identity
+
+Zenith keeps its compact transparent dashboard dark and quiet. Cool blue marks
+telemetry, cyan marks healthy readings, and orange/magenta/red communicate
+thermal warnings and critical states.
+
+| Role | Color |
+|---|---|
+| Telemetry blue | `#3b83f6` |
+| Healthy | `#22d3ee` |
+| Warning | `#f97316` |
+| Critical | `#ef4444` |
+
+The repository has a product icon but no dashboard screenshot yet. See the
+[visual identity guide](docs/visual-identity.md) and status-color source in
+[`src/components/Dashboard.tsx`](src/components/Dashboard.tsx).
+
 ## Tech Stack
 
 React 19 · TypeScript · Vite · Tailwind CSS v4 · Tauri v2 · Rust (`sysinfo` + native sensor worker + PawnIO driver) · Inter (Google Fonts)
+
+Sensor backends are selected per platform in `src-tauri/worker/src/backend.rs`:
+PawnIO/Intel MSR on Windows, hwmon on Linux, a placeholder on macOS, and a
+labeled development mock. See [architecture](docs/architecture.md) for the
+event pipeline.
+
+## Documentation
+
+| Page | What it covers |
+| --- | --- |
+| [Docs index](docs/README.md) | Start here; every Zenith guide and canonical source file. |
+| [Product](docs/product.md) | Audience, feature inventory, and non-goals. |
+| [Architecture](docs/architecture.md) | Stack, process model, and sensor data flow. |
+| [Development](docs/development.md) | Setup, conventions, and troubleshooting. |
+| [Configuration](docs/configuration.md) | Env vars, worker flags, config files, and security notes. |
+| [Testing](docs/testing.md) | Rust test inventory and gaps. |
+| [Deployment](docs/deployment.md) | Builds, artifacts, targets, and missing automation. |
+| [Changelog](docs/changelog.md) | Pointer to the full release log and notes. |
+| [Visual identity](docs/visual-identity.md) | Palette and design source files. |
+
+## Command reference
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Vite development server (`vite`). |
+| `npm run build` | Type-check and build the frontend (`tsc && vite build`). |
+| `npm run preview` | Preview the built frontend (`vite preview`). |
+| `npm run tauri` | Tauri v2 CLI; used as `npm run tauri dev` and `npm run tauri build`. |
+| `cargo build --release --manifest-path src-tauri/worker/Cargo.toml` | Build the sensor worker; the Tauri dev/build hooks run this automatically. |
+
+There is no `test` script in `package.json`. Automated tests are Rust
+`#[test]` functions in the two Cargo crates; see [testing](docs/testing.md).
 
 ## Project Structure
 
@@ -68,6 +117,16 @@ npm run tauri build
 ```
 
 `tauri build` compiles the frontend, the Rust app, and the sensor worker, and bundles the worker next to `Zenith.exe` via `bundle.resources`. Installers are generated in `src-tauri/target/release/bundle/`.
+
+## Known gaps
+
+- No npm `test` or `lint` script is declared; there are no frontend component
+  tests or coverage reports in the repository.
+- The icon generator in `scripts/generate-icons.mjs` is not exposed as an npm
+  script and expects `icon.svg` in the current working directory.
+- No CI/CD, signing, or auto-update configuration for Zenith was found.
+- The macOS sensor backend is a placeholder, and Intel-only hardware decode is
+  noted in the changelog.
 
 ## Author
 
